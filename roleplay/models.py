@@ -52,6 +52,11 @@ class CandidateQuestion:
     focus: str  # "plot" | "motivation" | "theme" | "motif" -- loosely typed
     # on purpose; tighten into a real enum once actual content shows which
     # buckets are worth distinguishing in the review screen.
+    grade_level: int  # 7-12, from the teacher's thin UI -- carried on the
+    # question itself (not just passed as a generation-time argument) so the
+    # review screen can show what grade a question was actually calibrated
+    # for, and so re-reviewing old content later doesn't require re-deriving
+    # that context from elsewhere.
 
 
 @dataclass(frozen=True)
@@ -59,6 +64,15 @@ class GateResult:
     verdict: GateVerdict
     flagged_phrase: Optional[str]  # the specific span B is objecting to, if any
     reasoning: str
+    suggested_rephrase: Optional[str] = None  # populated only when verdict is
+    # SPOILER/UNCERTAIN and B judges the question's underlying analytical
+    # intent is sound but leans on specifics the reader doesn't have yet --
+    # e.g. "how does X foreshadow Y" rephrased to "how might X be an example
+    # of foreshadowing", with Y's specifics dropped rather than the whole
+    # question discarded. B can make this call without needing any knowledge
+    # it doesn't have: recognizing that a specific reference is doing work it
+    # shouldn't, and generalizing it away, doesn't require knowing what the
+    # reference actually points to.
 
 
 @dataclass(frozen=True)
@@ -77,5 +91,10 @@ class ReviewItem:
     gate_result: GateResult
     keyword_flag: Optional[KeywordFlag]
     needs_review: bool
+    rephrase_gate_result: Optional[GateResult] = None  # if gate_result carried
+    # a suggested_rephrase, this is that rephrase run back through the SAME
+    # gate call as a courtesy -- so the reviewer sees "yes, this fix actually
+    # verifies clean" instead of having to re-check it themselves. Still
+    # surfaced for human approval either way; this doesn't auto-ship anything.
     approved: bool = False  # only ever flips true from the human review
     # screen -- nothing in this pipeline sets it

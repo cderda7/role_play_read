@@ -37,7 +37,11 @@ GENERATE_SCHEMA = {
 }
 
 
-def _system_prompt(full_play_text: str) -> str:
+GRADE_MIN = 7
+GRADE_MAX = 12
+
+
+def _system_prompt(full_play_text: str, grade_level: int) -> str:
     return (
         "You are a literary-analysis question writer with complete "
         "knowledge of this play:\n\n"
@@ -48,8 +52,15 @@ def _system_prompt(full_play_text: str) -> str:
         "comprehension, character motivation, theme, and motif. Phrase them "
         "for a reader who has only reached that point in the story -- do "
         "not assume they know what happens later, except for the "
-        "broadly-known outcome described above. Respond only through the "
-        "required tool call."
+        "broadly-known outcome described above.\n\n"
+        f"The student is in grade {grade_level} (on a 7-12 scale). Calibrate "
+        "vocabulary, sentence complexity, and how much scaffolding the "
+        "question itself provides to that grade -- a grade 7 question should "
+        "still be genuinely analytical, not simplified into a factual-recall "
+        "question, but it should lean on more concrete, directly-textual "
+        "language; a grade 12 question can carry more abstraction, ambiguity, "
+        "and open-endedness. Don't flatten every grade to the same phrasing.\n\n"
+        "Respond only through the required tool call."
     )
 
 
@@ -57,16 +68,20 @@ def generate_candidate_questions(
     full_play_text: str,
     chapter: Chapter,
     character: str,
+    grade_level: int,
     client: LLMClient,
     count: int = 8,
 ) -> List[CandidateQuestion]:
+    if not GRADE_MIN <= grade_level <= GRADE_MAX:
+        raise ValueError(f"grade_level must be between {GRADE_MIN} and {GRADE_MAX}, got {grade_level}")
+
     user_message = (
         f"Chapter: {chapter.chapter_id}\n"
         f"Character the student is role-playing: {character}\n"
         f"Write {count} questions."
     )
     raw = client.complete(
-        system=_system_prompt(full_play_text),
+        system=_system_prompt(full_play_text, grade_level),
         messages=[LLMMessage(role="user", content=user_message)],
         json_schema=GENERATE_SCHEMA,
     )
@@ -77,6 +92,7 @@ def generate_candidate_questions(
             character=character,
             question=item["question"],
             focus=item["focus"],
+            grade_level=grade_level,
         )
         for item in data["questions"]
     ]

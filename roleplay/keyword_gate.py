@@ -29,17 +29,25 @@ SPOILER_KEYWORDS: Dict[str, str] = {}
 CHAPTER_ORDER: List[str] = []
 
 
-def check_keyword_spoilers(candidate: CandidateQuestion) -> Optional[KeywordFlag]:
-    if not CHAPTER_ORDER or candidate.chapter_id not in CHAPTER_ORDER:
+def check_keyword_spoilers_in_text(chapter_id: str, text: str) -> Optional[KeywordFlag]:
+    """The general-purpose backstop check underneath check_keyword_spoilers --
+    works on any bare text tied to a chapter_id, not just a CandidateQuestion,
+    so it also covers branching-script narration (corrupted-path consequences,
+    correct-answer explanations)."""
+    if not CHAPTER_ORDER or chapter_id not in CHAPTER_ORDER:
         return None  # not wired up yet -- see TODOs above; fails open rather
         # than raising, so the rest of the pipeline is runnable before real
         # content exists, but this means the backstop is inert until it's
         # populated -- don't mistake "no keyword hits" for "checked" until
         # SPOILER_KEYWORDS and CHAPTER_ORDER are real.
 
-    current_pos = CHAPTER_ORDER.index(candidate.chapter_id)
-    lowered = candidate.question.lower()
+    current_pos = CHAPTER_ORDER.index(chapter_id)
+    lowered = text.lower()
     for term, reveal_chapter in SPOILER_KEYWORDS.items():
         if term in lowered and CHAPTER_ORDER.index(reveal_chapter) > current_pos:
             return KeywordFlag(matched_term=term)
     return None
+
+
+def check_keyword_spoilers(candidate: CandidateQuestion) -> Optional[KeywordFlag]:
+    return check_keyword_spoilers_in_text(candidate.chapter_id, candidate.question)

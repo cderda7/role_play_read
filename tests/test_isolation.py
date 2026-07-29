@@ -60,6 +60,7 @@ class FakeLLMClient:
                 "verdict": GateVerdict.CLEAR.value,
                 "flagged_phrase": None,
                 "reasoning": "Answerable from the text provided.",
+                "suggested_rephrase": None,
             }
         )
 
@@ -79,6 +80,7 @@ def test_one_generator_call_and_one_gate_call_per_candidate():
         full_play_text=full_play_text,
         chapters_read_so_far=chapters,
         character="Juliet",
+        grade_level=9,
         client=client,
     )
 
@@ -97,6 +99,7 @@ def test_gate_calls_never_reference_the_full_play_or_the_generator():
         full_play_text=full_play_text,
         chapters_read_so_far=chapters,
         character="Juliet",
+        grade_level=9,
         client=client,
     )
 
@@ -123,6 +126,7 @@ def test_gate_only_sees_text_through_the_current_chapter():
         full_play_text=full_play_text,
         chapters_read_so_far=chapters,
         character="Romeo",
+        grade_level=9,
         client=client,
     )
 
@@ -144,6 +148,7 @@ def test_needs_review_when_gate_flags_spoiler():
                     "verdict": GateVerdict.SPOILER.value,
                     "flagged_phrase": "fake her death",
                     "reasoning": "The potion plan hasn't happened yet in what's been read.",
+                    "suggested_rephrase": None,
                 }
             )
 
@@ -154,9 +159,70 @@ def test_needs_review_when_gate_flags_spoiler():
         full_play_text="ACT 1...ACT 5",
         chapters_read_so_far=chapters,
         character="Juliet",
+        grade_level=9,
         client=client,
     )
 
     assert len(review_items) == 1
     assert review_items[0].needs_review is True
     assert review_items[0].gate_result.verdict == GateVerdict.SPOILER
+
+
+def test_suggested_rephrase_is_reverified_through_a_fresh_gate_call():
+    class RephrasingClient(FakeLLMClient):
+        def complete(self, system, messages, json_schema=None):
+            self.calls.append(RecordedCall(system=system, messages=list(messages), json_schema=json_schema))
+            if json_schema and "questions" in json_schema.get("properties", {}):
+                return json.dumps(
+                    {
+                        "questions": [
+                            {
+                                "question": "How does Romeo's devotion to Rosaline foreshadow his feelings for Juliet at the feast?",
+                                "focus": "theme",
+                            }
+                        ]
+                    }
+                )
+
+            combined = system + "".join(m.content for m in messages)
+            if "Rosaline foreshadow his feelings for Juliet at the feast" in combined:
+                # First pass: the original, spoiler-leaking question.
+                return json.dumps(
+                    {
+                        "verdict": GateVerdict.SPOILER.value,
+                        "flagged_phrase": "his feelings for Juliet at the feast",
+                        "reasoning": "Neither the feast nor Juliet is established yet.",
+                        "suggested_rephrase": "How might Romeo's devotion to Rosaline in this scene be an example of foreshadowing?",
+                    }
+                )
+            # Second pass: the rephrased question comes back clean.
+            return json.dumps(
+                {
+                    "verdict": GateVerdict.CLEAR.value,
+                    "flagged_phrase": None,
+                    "reasoning": "Answerable as a craft/structure question without naming what's foreshadowed.",
+                    "suggested_rephrase": None,
+                }
+            )
+
+    chapters = [Chapter(chapter_id="act1_scene1", order=0, text="Two households, both alike in dignity...")]
+    client = RephrasingClient()
+
+    review_items = orchestrate_chapter(
+        full_play_text="ACT 1...ACT 5",
+        chapters_read_so_far=chapters,
+        character="Romeo",
+        grade_level=9,
+        client=client,
+    )
+
+    assert len(review_items) == 1
+    item = review_items[0]
+    assert item.gate_result.verdict == GateVerdict.SPOILER
+    assert item.gate_result.suggested_rephrase is not None
+    assert item.rephrase_gate_result is not None
+    assert item.rephrase_gate_result.verdict == GateVerdict.CLEAR
+    # needs_review reflects the ORIGINAL question's verdict -- the rephrase
+    # is a suggestion for the human reviewer, not an auto-fix that bypasses
+    # review.
+    assert item.needs_review is True
