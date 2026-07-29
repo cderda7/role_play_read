@@ -62,25 +62,41 @@ standalone guarantee).
   narration is written for a specific grade (7-12), threaded through to C's
   prompt and stored alongside the content for traceability. B's spoiler
   judgment deliberately does *not* depend on grade.
+- **Voice/dialect** (`period_voice.py`) — kept in its own file, separate
+  from `script_generator.py`, on purpose: which register a checkpoint
+  option's quote is written in (this play's Early Modern English vs. plain
+  contemporary English) is a property of the specific book, not of the
+  branching-script pipeline itself. `generate_scene_script()` takes a
+  `voice_guidance` string and defaults to plain modern English;
+  `orchestrate_scene_script()` defaults to `ELIZABETHAN_VOICE_GUIDANCE`
+  because *this* project's text is Romeo & Juliet. Adapting a different,
+  modern-English novel means passing (or just relying on the default of)
+  `NO_SPECIAL_VOICE_GUIDANCE` — no edits to the generator or orchestrator
+  needed. A different historical/stylized book gets its own new constant in
+  `period_voice.py`, following the same shape.
 
 ## The branching script, concretely
 
 A `SceneScript` (`script_models.py`) is an ordered list of `ScriptBeat`
 (2-5 sentences of plain narration) and `Checkpoint` items. Each `Checkpoint`
-has a prompt and a small set of `CheckpointOption`s, exactly one marked
-`is_canonical`. Every non-canonical option carries a `corrupted_narration` —
-a short, spoiler-gated consequence that ends the attempt quickly rather than
-branching into a long alternate story. Every checkpoint also carries a
-`correct_explanation` — also spoiler-gated — for why the canonical choice is
-correct.
+has a prompt and a small set of `CheckpointOption`s (one canonical, plus
+`WRONG_OPTIONS_PER_CHECKPOINT` wrong ones), every option written as a
+genuine in-character line (see Voice/dialect above), not a modern
+paraphrase. Every non-canonical option carries a `corrupted_narration` — a
+short (~30 second), spoiler-gated consequence. Every checkpoint also
+carries a `correct_explanation` — also spoiler-gated — for why the
+canonical choice is correct.
 
-**This package only authors that content offline.** The actual attempt
-tracking — first wrong choice at a checkpoint shows `corrupted_narration`
-and restarts the scene; getting the *same* checkpoint wrong a second time
-skips straight to `correct_explanation` instead of corrupting again — is
-per-student session state that belongs to a future interactive runtime, not
-this pipeline. See `script_models.py`'s module docstring for the full
-runtime/authoring boundary.
+**`checkpoint_runtime.py`** is the traversal logic this content is authored
+for: picking the canonical option passes the checkpoint immediately and
+shows `correct_explanation` to every student as reinforcement. Picking a
+wrong option shows its `corrupted_narration`, then re-presents the *same*
+checkpoint with that option removed — so the worst case is trying both
+wrong options before the one remaining (correct) option is left. This is
+pure decision logic (`CheckpointAttempt`), tested independently
+(`tests/test_checkpoint_runtime.py`), and doesn't need a live chat surface
+to be exercised — but it also isn't wired into one yet; see "Not yet
+connected" below.
 
 **Known gap:** only `corrupted_narration` and `correct_explanation` go
 through the spoiler gate. Plain `ScriptBeat` text does not get its own gate
@@ -134,8 +150,9 @@ pilot is a natural next addition.
 ## Not yet connected
 
 This pipeline is offline / content-authoring only, matching the "AI
-proposes, human approves" pattern used elsewhere in this project — it isn't
-wired into any live student-facing app yet. Where the review screen and the
-actual role-play chat surface live (immersive_reader's frontend, a new
-project, etc.), and where the runtime attempt-tracking state machine for the
-branching script lives, are still open questions.
+proposes, human approves" pattern used elsewhere in this project —
+`checkpoint_runtime.py`'s traversal logic is real and tested, but nothing
+in this package is wired into a live chat surface yet. Where the review
+screen and the actual role-play chat live (immersive_reader's frontend, a
+new project, etc.) is still an open question. See `TODO.md` for what's
+explicitly next (beat-level spoiler isolation) and what else is still open.

@@ -5,6 +5,29 @@ writes is untrusted until it clears role B) but produces a SceneScript --
 narration beats interleaved with decision checkpoints -- instead of a flat
 list of questions.
 
+CHECKPOINT INTERACTION MODEL (see checkpoint_runtime.py for the actual
+runtime logic this content is authored for): picking the canonical option
+passes the checkpoint immediately, and correct_explanation is shown to
+EVERY student who passes, as reinforcement -- not just as a consolation
+prize after a second wrong attempt. Picking a non-canonical option shows
+that option's corrupted_narration -- capped at roughly
+checkpoint_runtime.MAX_CORRUPTED_NARRATION_SECONDS of reading time, shorter
+than a full beat -- then re-presents the SAME checkpoint with that option no
+longer offered. With only WRONG_OPTIONS_PER_CHECKPOINT + 1 options total,
+the worst case is a student who tries both wrong options before the
+canonical one is the only choice left -- i.e. they go down both corrupted
+paths before finally landing on the correct one, exactly as intended; a
+student who picks correctly on the first or second try never sees the
+branch they didn't take.
+
+VOICE/DIALECT (see period_voice.py): what register each option's quote is
+written in -- Early Modern English for this play, plain contemporary
+English for a different book -- is deliberately NOT decided in this file.
+generate_scene_script() takes a voice_guidance string and drops it straight
+into the prompt; period_voice.py is where the actual guidance text lives,
+so adapting a different novel means picking (or writing) a different
+constant there, not editing this module's prompt-building logic.
+
 KNOWN GAP: only each checkpoint's corrupted_narration and correct_explanation
 go through the spoiler gate (see orchestrator.orchestrate_scene_script) --
 plain ScriptBeat text does not get an individual gate call. That's a
@@ -15,6 +38,7 @@ in principle spoil something that happens later in the very same scene, and
 the existing chapter-level isolation machinery isn't built for that finer
 grain. Flagging this here so it doesn't get mistaken for a full guarantee --
 extend this if within-scene beat spoilers turn out to matter in practice.
+See TODO.md -- this is the explicitly-requested next item.
 """
 
 from __future__ import annotations
@@ -23,8 +47,10 @@ import json
 from typing import List
 
 from .checkpoint_density import CheckpointDensity
+from .checkpoint_runtime import MAX_CORRUPTED_NARRATION_SECONDS, MAX_CORRUPTED_NARRATION_WORDS
 from .llm_client import LLMClient, LLMMessage
 from .models import Chapter
+from .period_voice import NO_SPECIAL_VOICE_GUIDANCE
 from .script_models import Checkpoint, CheckpointKind, CheckpointOption, SceneScript, ScriptBeat
 from .spoiler_policy import SPOILER_POLICY
 
@@ -78,7 +104,9 @@ SCRIPT_SCHEMA = {
 }
 
 
-def _system_prompt(full_play_text: str, character: str, grade_level: int, density: CheckpointDensity) -> str:
+def _system_prompt(
+    full_play_text: str, character: str, grade_level: int, density: CheckpointDensity, voice_guidance: str
+) -> str:
     return (
         "You are writing an interactive role-play script for a student "
         f"playing the character {character} in one scene of this play, with "
@@ -97,17 +125,24 @@ def _system_prompt(full_play_text: str, character: str, grade_level: int, densit
         "options: exactly ONE option must be marked is_canonical=true and "
         "must match what the character actually does in the play at this "
         f"moment. The other {WRONG_OPTIONS_PER_CHECKPOINT} options are "
-        "plausible-but-wrong choices; each MUST have a corrupted_narration "
-        "of 2-5 sentences describing the immediate, in-scene consequence of "
-        "that wrong choice. This consequence should end quickly and clearly "
-        "-- it is NOT the start of a long alternate story, just a short, "
-        "self-contained note on why this path doesn't work, ending the "
-        "attempt. The canonical option's corrupted_narration must be null. "
-        "Every checkpoint also needs a correct_explanation: 2-4 sentences "
+        "plausible-but-wrong choices.\n\n"
+        f"{voice_guidance}\n\n"
+        "Each non-canonical option MUST also have a corrupted_narration: a "
+        "SHORT passage describing the immediate, in-scene consequence of "
+        f"that wrong choice, no more than about {MAX_CORRUPTED_NARRATION_WORDS} "
+        f"words (roughly {MAX_CORRUPTED_NARRATION_SECONDS} seconds read "
+        "aloud -- shorter than a beat). This consequence should end quickly "
+        "and clearly -- it is NOT the start of a long alternate story, just "
+        "a short, self-contained note on why this path doesn't work, after "
+        "which the same checkpoint is presented again without this option. "
+        "The canonical option's corrupted_narration must be null. Every "
+        "checkpoint also needs a correct_explanation: 2-4 sentences "
         "explaining WHY the canonical option is what the character actually "
         "does, grounded only in what this scene (and everything before it) "
         "has already established -- do not justify it using anything that "
-        "happens later in the play.\n\n"
+        "happens later in the play. This is shown to every student who "
+        "passes the checkpoint, as reinforcement, not just to one who got "
+        "it wrong first.\n\n"
         f"Write exactly {density.major} MAJOR checkpoint(s) and at least "
         f"{density.minor_min} MINOR checkpoint(s), interleaved with beats so "
         "the script reads as continuous narration punctuated by decisions, "
@@ -134,10 +169,15 @@ def generate_scene_script(
     grade_level: int,
     density: CheckpointDensity,
     client: LLMClient,
+    voice_guidance: str = NO_SPECIAL_VOICE_GUIDANCE,
 ) -> SceneScript:
+    """voice_guidance defaults to plain contemporary English -- see
+    period_voice.py. Pass period_voice.ELIZABETHAN_VOICE_GUIDANCE (or a new
+    constant following that file's shape) for a book written in a
+    distinctive historical or stylized register."""
     user_message = f"Chapter: {chapter.chapter_id}\nWrite the script now."
     raw = client.complete(
-        system=_system_prompt(full_play_text, character, grade_level, density),
+        system=_system_prompt(full_play_text, character, grade_level, density, voice_guidance),
         messages=[LLMMessage(role="user", content=user_message)],
         json_schema=SCRIPT_SCHEMA,
     )

@@ -19,11 +19,13 @@ from __future__ import annotations
 from typing import List, Optional
 
 from .checkpoint_density import CheckpointDensity, checkpoint_density
+from .checkpoint_runtime import exceeds_corrupted_narration_budget
 from .generator import generate_candidate_questions
 from .gate import evaluate_narration_for_spoilers, evaluate_question_for_spoilers
 from .keyword_gate import check_keyword_spoilers, check_keyword_spoilers_in_text
 from .llm_client import LLMClient
 from .models import CandidateQuestion, Chapter, GateVerdict, ReviewItem
+from .period_voice import ELIZABETHAN_VOICE_GUIDANCE
 from .script_generator import generate_scene_script
 from .script_models import NarrationReviewItem, ScriptReviewBundle
 from .timing import estimate_minutes, meets_timing_target
@@ -105,6 +107,7 @@ def orchestrate_scene_script(
     grade_level: int,
     client: LLMClient,
     density: Optional[CheckpointDensity] = None,
+    voice_guidance: str = ELIZABETHAN_VOICE_GUIDANCE,
 ) -> ScriptReviewBundle:
     """Generates one chapter's branching role-play script (role C) and gates
     every piece of authored narration that could leak a spoiler (role B),
@@ -124,7 +127,16 @@ def orchestrate_scene_script(
 
     density defaults to checkpoint_density(current_chapter.text) if not
     given -- pass it explicitly if a caller has already computed it and
-    wants to avoid recomputing."""
+    wants to avoid recomputing.
+
+    voice_guidance defaults to period_voice.ELIZABETHAN_VOICE_GUIDANCE
+    because THIS project's text is Romeo & Juliet -- that default lives here
+    in the project-specific orchestrator, not in the reusable
+    script_generator.py, which defaults to plain contemporary English (see
+    period_voice.py). A caller adapting a different, modern-English book
+    should pass period_voice.NO_SPECIAL_VOICE_GUIDANCE (or omit this
+    argument when calling generate_scene_script directly, which already
+    defaults to it)."""
     current_chapter = chapters_read_so_far[-1]
     if density is None:
         density = checkpoint_density(current_chapter.text)
@@ -136,6 +148,7 @@ def orchestrate_scene_script(
         grade_level=grade_level,
         density=density,
         client=client,
+        voice_guidance=voice_guidance,
     )
 
     narration_reviews: List[NarrationReviewItem] = []
@@ -149,6 +162,7 @@ def orchestrate_scene_script(
                 client=client,
             )
             keyword_flag = check_keyword_spoilers_in_text(current_chapter.chapter_id, option.corrupted_narration)
+            exceeds_budget = exceeds_corrupted_narration_budget(option.corrupted_narration)
             narration_reviews.append(
                 NarrationReviewItem(
                     checkpoint_id=checkpoint.checkpoint_id,
@@ -157,7 +171,8 @@ def orchestrate_scene_script(
                     text=option.corrupted_narration,
                     gate_result=gate_result,
                     keyword_flag=keyword_flag,
-                    needs_review=gate_result.verdict != GateVerdict.CLEAR or keyword_flag is not None,
+                    exceeds_time_budget=exceeds_budget,
+                    needs_review=gate_result.verdict != GateVerdict.CLEAR or keyword_flag is not None or exceeds_budget,
                 )
             )
 

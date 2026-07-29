@@ -1,11 +1,21 @@
 from .character_selector import character_significance, select_character, select_characters_for_all_chapters
 from .checkpoint_density import CheckpointDensity, checkpoint_density
+from .checkpoint_runtime import (
+    MAX_CORRUPTED_NARRATION_SECONDS,
+    MAX_CORRUPTED_NARRATION_WORDS,
+    CheckpointAttempt,
+    CheckpointOutcome,
+    CheckpointResult,
+    corrupted_narration_seconds,
+    exceeds_corrupted_narration_budget,
+)
 from .gate import evaluate_narration_for_spoilers, evaluate_question_for_spoilers
 from .generator import generate_candidate_questions
 from .keyword_gate import check_keyword_spoilers, check_keyword_spoilers_in_text
 from .llm_client import AnthropicClient, LLMClient, LLMMessage
 from .models import CandidateQuestion, Chapter, GateResult, GateVerdict, KeywordFlag, ReviewItem
 from .orchestrator import orchestrate_chapter, orchestrate_scene_script
+from .period_voice import ELIZABETHAN_VOICE_GUIDANCE, NO_SPECIAL_VOICE_GUIDANCE
 from .script_generator import generate_scene_script
 from .script_models import (
     Checkpoint,
@@ -51,4 +61,13 @@ __all__ = [
     "estimate_minutes",
     "meets_timing_target",
     "target_minutes",
+    "CheckpointAttempt",
+    "CheckpointResult",
+    "CheckpointOutcome",
+    "MAX_CORRUPTED_NARRATION_SECONDS",
+    "MAX_CORRUPTED_NARRATION_WORDS",
+    "corrupted_narration_seconds",
+    "exceeds_corrupted_narration_budget",
+    "ELIZABETHAN_VOICE_GUIDANCE",
+    "NO_SPECIAL_VOICE_GUIDANCE",
 ]

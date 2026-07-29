@@ -14,22 +14,26 @@ RUNTIME vs. AUTHORING BOUNDARY -- read this before wiring this into an app:
 everything in this file is AUTHORED CONTENT, produced offline by the
 pipeline and reviewed by a human before it's used. Nothing here tracks a
 particular student's live attempt state -- there's no "attempt count" or
-"current position" in a SceneScript. That belongs to a future interactive
-runtime, which will consume this content and drive it through per-student
-session state:
+"current position" in a SceneScript. See checkpoint_runtime.py for the
+actual per-checkpoint traversal logic this content is authored for:
 
   - Student reaches a Checkpoint, picks an option.
-  - Canonical option picked -> continue to the next item in the script.
-  - Non-canonical option picked, FIRST time at this checkpoint -> show that
-    option's corrupted_narration (short, terminates quickly -- not a long
-    divergent story), then the student restarts the scene.
-  - Non-canonical option picked, SECOND time at the SAME checkpoint (i.e.
-    the student restarted and got this exact checkpoint wrong again) -> skip
-    the corrupted narration entirely, show the checkpoint's
-    correct_explanation directly, then the student restarts.
+  - Canonical option picked -> checkpoint PASSES immediately;
+    correct_explanation is shown as reinforcement to every student who
+    passes, then the script continues to the next item.
+  - Non-canonical option picked -> that option's corrupted_narration is
+    shown (short, self-contained, roughly 30 seconds of reading -- NOT a
+    long divergent story), then the SAME checkpoint is presented again with
+    that option no longer offered.
+  - With only 3 options per checkpoint, the worst case is a student who
+    tries both wrong options before the canonical one is the only choice
+    left -- i.e. they go down both corrupted paths before finally landing
+    on the correct one. A student who's right on the first or second try
+    never sees the branch they didn't take.
 
-This file only has to supply the pieces that runtime needs for both of those
-branches; it doesn't implement the branching logic itself.
+This file only has to supply the pieces checkpoint_runtime.py needs: the
+options, which one is canonical, each wrong option's corrupted_narration,
+and the checkpoint's correct_explanation.
 """
 
 from __future__ import annotations
@@ -50,18 +54,23 @@ class CheckpointKind(str, Enum):
 class CheckpointOption:
     """One choice offered at a checkpoint."""
 
-    label: str  # the choice text shown to the student, e.g. "Draw your
-    # sword and join the fight" -- written in-character, describing an
-    # action the role-played character could plausibly take at this moment.
+    label: str  # the choice text shown to the student -- a genuine
+    # in-character line in the play's own Early Modern English voice (not a
+    # modern paraphrase), e.g. 'Match his heat with your own: "Have at thee
+    # then, and gladly."' True of the canonical option and every
+    # non-canonical option alike.
     is_canonical: bool  # True for the one option that matches what the
     # character actually does in the play at this point.
     corrupted_narration: Optional[str] = None  # Required (non-None) on every
     # non-canonical option; must be None on the canonical option, since
     # there's nothing to corrupt when the student picks the path the play
-    # actually takes. 2-5 sentences, spoiler-gated the same as a question
-    # (see gate.evaluate_narration_for_spoilers) -- per the explicit design
-    # decision that corrupted-branch narration needs the same spoiler gate
-    # as questions.
+    # actually takes. Capped at roughly
+    # checkpoint_runtime.MAX_CORRUPTED_NARRATION_SECONDS of reading time --
+    # shorter than a beat, since a wrong choice re-presents the same
+    # checkpoint rather than ending the scene. Spoiler-gated the same as a
+    # question (see gate.evaluate_narration_for_spoilers) -- per the
+    # explicit design decision that corrupted-branch narration needs the
+    # same spoiler gate as questions.
 
 
 @dataclass(frozen=True)
@@ -75,10 +84,9 @@ class Checkpoint:
     prompt: str  # what the student is asked to decide, framed in-character
     options: List[CheckpointOption]
     correct_explanation: str  # WHY the canonical option is correct, grounded
-    # only in what's been established by the current chapter. Surfaced to
-    # the student directly (not as a corrupted branch) the second time they
-    # get this same checkpoint wrong -- the "terminate quickly, don't send
-    # them down a second divergent story" design. Also spoiler-gated: an
+    # only in what's been established by the current chapter. Shown to EVERY
+    # student who passes this checkpoint, as reinforcement -- not reserved
+    # for a student who got it wrong first. Also spoiler-gated: an
     # explanation of "why" can just as easily leak a future detail as a
     # corrupted-branch narration can, so it goes through the same check even
     # though only the corrupted-branch case was explicitly specified.
@@ -145,6 +153,10 @@ class NarrationReviewItem:
     gate_result: GateResult
     keyword_flag: Optional[KeywordFlag] = None
     needs_review: bool = False
+    exceeds_time_budget: bool = False  # only meaningful for kind ==
+    # "corrupted_branch" -- true if this narration is longer than
+    # checkpoint_runtime.MAX_CORRUPTED_NARRATION_SECONDS would allow, folded
+    # into needs_review the same way a keyword hit is.
     approved: bool = False
 
 
