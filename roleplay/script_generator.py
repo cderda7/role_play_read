@@ -48,7 +48,7 @@ from typing import List
 
 from .checkpoint_density import CheckpointDensity
 from .checkpoint_runtime import MAX_CORRUPTED_NARRATION_SECONDS, MAX_CORRUPTED_NARRATION_WORDS
-from .llm_client import LLMClient, LLMMessage
+from .llm_client import CACHE_BOUNDARY_MARKER, LLMClient, LLMMessage
 from .models import Chapter
 from .period_voice import NO_SPECIAL_VOICE_GUIDANCE
 from .script_models import Checkpoint, CheckpointKind, CheckpointOption, SceneScript, ScriptBeat
@@ -107,42 +107,61 @@ SCRIPT_SCHEMA = {
 def _system_prompt(
     full_play_text: str, character: str, grade_level: int, density: CheckpointDensity, voice_guidance: str
 ) -> str:
-    return (
-        "You are writing an interactive role-play script for a student "
-        f"playing the character {character} in one scene of this play, with "
-        "complete knowledge of the whole play:\n\n"
+    # Everything in cacheable_prefix is identical on EVERY call this
+    # function ever makes for this play, regardless of character, chapter,
+    # grade, or voice -- full_play_text (~45k tokens) dominates the cost of
+    # every call, so this is exactly the prefix prompt caching (see
+    # llm_client.py's module docstring) is for. Deliberately phrased without
+    # naming the character, so the prefix stays byte-identical across every
+    # character this play ever assigns a student to -- WRONG_OPTIONS_PER_CHECKPOINT
+    # and the narration word/second budgets are fixed constants, not
+    # per-call variables, so they're safe to leave in here too.
+    cacheable_prefix = (
+        "You are writing an interactive role-play script for a student's "
+        "assigned character in one scene of a play, with complete knowledge "
+        "of the whole play:\n\n"
         f"{full_play_text}\n\n"
         f"{SPOILER_POLICY}\n\n"
         "The script is a sequence of two kinds of item, in the order the "
         "student experiences them:\n\n"
         "1. BEAT -- 2 to 5 sentences of plain narration, retelling what "
-        f"actually happens in this scene from {character}'s point of view. "
-        "Ground every beat in the scene's real events and dialogue -- do "
-        "not invent plot that isn't in the text.\n\n"
+        "actually happens in this scene from the assigned character's point "
+        "of view. Ground every beat in the scene's real events and dialogue "
+        "-- do not invent plot that isn't in the text.\n\n"
         "2. CHECKPOINT -- a decision point. Give it a short, in-character "
-        f"prompt describing a moment where {character} has to choose what "
-        f"to do next, and exactly {1 + WRONG_OPTIONS_PER_CHECKPOINT} "
+        "prompt describing a moment where the assigned character has to "
+        f"choose what to do next, and exactly {1 + WRONG_OPTIONS_PER_CHECKPOINT} "
         "options: exactly ONE option must be marked is_canonical=true and "
         "must match what the character actually does in the play at this "
         f"moment. The other {WRONG_OPTIONS_PER_CHECKPOINT} options are "
-        "plausible-but-wrong choices.\n\n"
-        f"{voice_guidance}\n\n"
-        "Each non-canonical option MUST also have a corrupted_narration: a "
-        "SHORT passage describing the immediate, in-scene consequence of "
-        f"that wrong choice, no more than about {MAX_CORRUPTED_NARRATION_WORDS} "
-        f"words (roughly {MAX_CORRUPTED_NARRATION_SECONDS} seconds read "
-        "aloud -- shorter than a beat). This consequence should end quickly "
-        "and clearly -- it is NOT the start of a long alternate story, just "
-        "a short, self-contained note on why this path doesn't work, after "
-        "which the same checkpoint is presented again without this option. "
-        "The canonical option's corrupted_narration must be null. Every "
+        "plausible-but-wrong choices. Each non-canonical option MUST also "
+        "have a corrupted_narration: a SHORT passage describing the "
+        "immediate, in-scene consequence of that wrong choice, no more than "
+        f"about {MAX_CORRUPTED_NARRATION_WORDS} words (roughly "
+        f"{MAX_CORRUPTED_NARRATION_SECONDS} seconds read aloud -- shorter "
+        "than a beat). This consequence should end quickly and clearly -- it "
+        "is NOT the start of a long alternate story, just a short, "
+        "self-contained note on why this path doesn't work, after which the "
+        "same checkpoint is presented again without this option. The "
+        "canonical option's corrupted_narration must be null. Every "
         "checkpoint also needs a correct_explanation: 2-4 sentences "
         "explaining WHY the canonical option is what the character actually "
         "does, grounded only in what this scene (and everything before it) "
         "has already established -- do not justify it using anything that "
         "happens later in the play. This is shown to every student who "
         "passes the checkpoint, as reinforcement, not just to one who got "
-        "it wrong first.\n\n"
+        "it wrong first."
+    )
+    # Everything below is genuinely different per call -- character,
+    # density, voice, and grade -- and stays strictly after the marker so it
+    # never contaminates the cached prefix above.
+    variable_suffix = (
+        f"You are writing this scene's script for {character}, a student at "
+        f"grade {grade_level} (on a 7-12 scale). Calibrate vocabulary and "
+        "sentence complexity to that grade the same way you would for a "
+        "written passage -- concrete and directly textual for grade 7, more "
+        "abstraction and ambiguity acceptable for grade 12.\n\n"
+        f"{voice_guidance}\n\n"
         f"Write exactly {density.major} MAJOR checkpoint(s) and at least "
         f"{density.minor_min} MINOR checkpoint(s), interleaved with beats so "
         "the script reads as continuous narration punctuated by decisions, "
@@ -154,12 +173,9 @@ def _system_prompt(
         "spends a meaningful amount of time in the scene -- don't pad with "
         "filler, but don't compress a scene's worth of action into two "
         "beats either.\n\n"
-        f"The student is in grade {grade_level} (on a 7-12 scale). Calibrate "
-        "vocabulary and sentence complexity to that grade the same way you "
-        "would for a written passage -- concrete and directly textual for "
-        "grade 7, more abstraction and ambiguity acceptable for grade 12.\n\n"
         "Respond only through the required tool call."
     )
+    return cacheable_prefix + CACHE_BOUNDARY_MARKER + variable_suffix
 
 
 def generate_scene_script(

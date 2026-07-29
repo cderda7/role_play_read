@@ -128,6 +128,38 @@ oversight.
   editorial decision baked in; change the wording there if the policy
   itself needs to change.
 
+## Cost and prompt caching
+
+Role C resends the entire play (~45k tokens) as part of its system prompt
+on every single call — that dominates the cost of running this pipeline,
+and it happens regardless of which chapter, character, or grade you're
+generating for. `llm_client.py` implements Anthropic prompt caching to
+avoid paying full price for that repeatedly: callers mark the end of a
+call-invariant prefix with `CACHE_BOUNDARY_MARKER` (a plain substring),
+and `AnthropicClient` splits on it via `split_cacheable()`, marking
+everything before the marker as cacheable.
+
+- `generator.py` and `script_generator.py` cache everything through the
+  full play text and the generic instructions — only grade/character/
+  density/voice are kept variable, after the marker, so the cached prefix
+  is byte-identical across every character, chapter, and grade this project
+  ever generates for.
+- `gate.py`'s system prompt is cached in full (it never varies for a given
+  `text_kind`), and the `reader_text` ("what you've read so far") portion
+  of its user message is cached too, since it's identical across every gate
+  call within one `orchestrate_chapter`/`orchestrate_scene_script` run.
+- Cache hits cost ~10% of base input price; a 5-minute cache write costs
+  1.25x, a 1-hour cache write costs 2x. `run_pilot.py` uses the 1-hour cache
+  by default, since a realistic pilot session (run a chapter, actually read
+  the output, decide whether to tweak something, run the next) easily spans
+  more than 5 minutes. See `llm_client.py`'s module docstring and
+  `tests/test_prompt_caching.py` for the mechanics.
+- **What this doesn't do:** persist across days, or between separate
+  sessions with a real gap — Anthropic's cache tops out at a 1-hour TTL,
+  full stop. There's no way to make a chapter generated today free to
+  regenerate next week; caching only pays off for calls made within the
+  same sitting.
+
 ## Recommended next step
 
 Run the pilot on one chapter by hand before automating across the whole

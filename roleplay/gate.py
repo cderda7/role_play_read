@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 from typing import List
 
-from .llm_client import LLMClient, LLMMessage
+from .llm_client import CACHE_BOUNDARY_MARKER, LLMClient, LLMMessage
 from .models import CandidateQuestion, Chapter, GateResult, GateVerdict
 from .spoiler_policy import SPOILER_POLICY
 
@@ -88,7 +88,16 @@ def _system_prompt(text_kind: str) -> str:
             "is CLEAR, leave suggested_rephrase null."
         )
 
-    return f"{task}\n\n{SPOILER_POLICY}\n\n{rephrase_guidance}\n\nRespond only through the required tool call."
+    # This whole prompt is 100% identical across EVERY call this function
+    # ever makes for a given text_kind -- it doesn't depend on chapter,
+    # character, grade, or the text being judged. Marking it entirely
+    # cacheable means every gate call after the first (for a given
+    # text_kind, within the cache's TTL) skips paying full price for this
+    # prompt -- see llm_client.py's module docstring.
+    return (
+        f"{task}\n\n{SPOILER_POLICY}\n\n{rephrase_guidance}\n\n"
+        f"Respond only through the required tool call.{CACHE_BOUNDARY_MARKER}"
+    )
 
 
 def evaluate_text_for_spoilers(
@@ -113,7 +122,12 @@ def evaluate_text_for_spoilers(
 
     reader_text = "\n\n".join(ch.text for ch in chapters_read_so_far)
     label = "Question someone just asked you" if text_kind == "question" else "Passage someone is about to show you"
-    user_message = f"What you've read so far:\n{reader_text}\n\n{label}: {text}"
+    # reader_text is identical across every gate call made within one
+    # orchestrate_chapter/orchestrate_scene_script run (chapters_read_so_far
+    # doesn't change mid-run), and by late chapters it can be nearly as large
+    # as the whole play -- so it's marked cacheable the same way, with only
+    # the bare question/narration text kept variable after the marker.
+    user_message = f"What you've read so far:\n{reader_text}{CACHE_BOUNDARY_MARKER}\n\n{label}: {text}"
 
     raw = client.complete(
         system=_system_prompt(text_kind),

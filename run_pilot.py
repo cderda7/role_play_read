@@ -8,6 +8,15 @@ Now wired up to the real data (data/romeoandjuliet.txt, data/chapters.json)
 and the character-selection heuristic, rather than placeholder text -- the
 only thing left to fill in is a real ANTHROPIC_API_KEY.
 
+COST: role C resends the whole play (~45k tokens) on every call, which
+dominates the price of a single-chapter run. Prompt caching (see
+llm_client.py's module docstring) is wired up here via cache_ttl="1h" --
+the FIRST run in a session pays full price once to write the cache, and
+every run after that, for any chapter, reuses it at ~10% of the base input
+price as long as it happens within that hour. Running several chapters
+back-to-back in one sitting is meaningfully cheaper than spreading them out
+past an hour apart.
+
 Usage:
     export ANTHROPIC_API_KEY=...
     python run_pilot.py                  # defaults to act1_scene1, grade 9
@@ -58,7 +67,14 @@ def main() -> None:
         f"({'complex' if density.is_complex else 'standard'})\n"
     )
 
-    client = AnthropicClient()  # requires ANTHROPIC_API_KEY in the environment
+    # cache_ttl="1h" (rather than the default 5-minute cache) because the
+    # realistic pilot workflow is: run one chapter, actually read the
+    # flagged output, decide whether to tweak a prompt, then run the next --
+    # that easily takes longer than 5 minutes per chapter. The 1-hour cache
+    # costs 2x to write (vs. 1.25x for 5-minute) but every call in the same
+    # session that reuses the ~45k-token play-text prefix pays only 0.1x for
+    # it once cached, so it pays for itself well before a second chapter.
+    client = AnthropicClient(cache_ttl="1h")  # requires ANTHROPIC_API_KEY in the environment
     full_play_text = load_full_play_text()
 
     review_items = orchestrate_chapter(

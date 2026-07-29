@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from typing import List
 
-from .llm_client import LLMClient, LLMMessage
+from .llm_client import CACHE_BOUNDARY_MARKER, LLMClient, LLMMessage
 from .models import CandidateQuestion, Chapter
 from .spoiler_policy import SPOILER_POLICY
 
@@ -42,7 +42,13 @@ GRADE_MAX = 12
 
 
 def _system_prompt(full_play_text: str, grade_level: int) -> str:
-    return (
+    # Everything up through the CACHE_BOUNDARY_MARKER is identical on EVERY
+    # call this function ever makes for this play, regardless of character,
+    # chapter, or grade -- full_play_text is ~45k tokens and dominates the
+    # cost of every generator call, so this is exactly the prefix Anthropic's
+    # prompt caching (see llm_client.py's module docstring) is for. Only
+    # grade_level varies, and it's kept strictly after the marker.
+    cacheable_prefix = (
         "You are a literary-analysis question writer with complete "
         "knowledge of this play:\n\n"
         f"{full_play_text}\n\n"
@@ -52,7 +58,9 @@ def _system_prompt(full_play_text: str, grade_level: int) -> str:
         "comprehension, character motivation, theme, and motif. Phrase them "
         "for a reader who has only reached that point in the story -- do "
         "not assume they know what happens later, except for the "
-        "broadly-known outcome described above.\n\n"
+        "broadly-known outcome described above."
+    )
+    variable_suffix = (
         f"The student is in grade {grade_level} (on a 7-12 scale). Calibrate "
         "vocabulary, sentence complexity, and how much scaffolding the "
         "question itself provides to that grade -- a grade 7 question should "
@@ -62,6 +70,7 @@ def _system_prompt(full_play_text: str, grade_level: int) -> str:
         "and open-endedness. Don't flatten every grade to the same phrasing.\n\n"
         "Respond only through the required tool call."
     )
+    return cacheable_prefix + CACHE_BOUNDARY_MARKER + variable_suffix
 
 
 def generate_candidate_questions(
