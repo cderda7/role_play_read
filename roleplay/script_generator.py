@@ -43,12 +43,11 @@ See TODO.md -- this is the explicitly-requested next item.
 
 from __future__ import annotations
 
-import json
 from typing import List
 
 from .checkpoint_density import CheckpointDensity
 from .checkpoint_runtime import MAX_CORRUPTED_NARRATION_SECONDS, MAX_CORRUPTED_NARRATION_WORDS
-from .llm_client import CACHE_BOUNDARY_MARKER, LLMClient, LLMMessage
+from .llm_client import CACHE_BOUNDARY_MARKER, LLMClient, call_structured
 from .models import Chapter
 from .period_voice import NO_SPECIAL_VOICE_GUIDANCE
 from .script_models import Checkpoint, CheckpointKind, CheckpointOption, SceneScript, ScriptBeat
@@ -192,12 +191,9 @@ def generate_scene_script(
     constant following that file's shape) for a book written in a
     distinctive historical or stylized register."""
     user_message = f"Chapter: {chapter.chapter_id}\nWrite the script now."
-    raw = client.complete(
-        system=_system_prompt(full_play_text, character, grade_level, density, voice_guidance),
-        messages=[LLMMessage(role="user", content=user_message)],
-        json_schema=SCRIPT_SCHEMA,
+    data = call_structured(
+        client, _system_prompt(full_play_text, character, grade_level, density, voice_guidance), user_message, SCRIPT_SCHEMA
     )
-    data = json.loads(raw)
 
     items: List = []
     for i, raw_item in enumerate(data["items"]):

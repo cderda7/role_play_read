@@ -17,11 +17,10 @@ several, feeding human review, not a standalone guarantee).
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import Dict, List
 
-from .llm_client import CACHE_BOUNDARY_MARKER, LLMClient, LLMMessage
+from .llm_client import CACHE_BOUNDARY_MARKER, LLMClient, call_structured
 from .models import CandidateQuestion, Chapter, GateResult, GateVerdict, TextKind
 from .spoiler_policy import SPOILER_POLICY
 
@@ -151,12 +150,7 @@ def evaluate_text_for_spoilers(
     # the bare question/narration text kept variable after the marker.
     user_message = f"What you've read so far:\n{reader_text}{CACHE_BOUNDARY_MARKER}\n\n{label}: {text}"
 
-    raw = client.complete(
-        system=_system_prompt(text_kind),
-        messages=[LLMMessage(role="user", content=user_message)],
-        json_schema=GATE_SCHEMA,
-    )
-    data = json.loads(raw)
+    data = call_structured(client, _system_prompt(text_kind), user_message, GATE_SCHEMA)
     return GateResult(
         verdict=GateVerdict(data["verdict"]),
         flagged_phrase=data.get("flagged_phrase"),

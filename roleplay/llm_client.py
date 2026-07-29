@@ -82,6 +82,29 @@ class LLMClient(Protocol):
         ...
 
 
+def call_structured(
+    client: LLMClient,
+    system: str,
+    user_message: str,
+    json_schema: dict,
+) -> dict:
+    """Calls client.complete() with json_schema forcing structured output,
+    and parses the result into a plain dict. Shared by every Role C / Role B
+    call site (generator.py, gate.py, script_generator.py), each of which
+    used to repeat this same call-then-deserialize step inline alongside its
+    own prompt-building and response-mapping logic. Pulling it out here means
+    each call site now only owns what's actually different about it -- the
+    prompt content and the domain-specific mapping from dict to dataclass --
+    and there's one place to change if this mechanical step ever needs to,
+    e.g. retrying on malformed JSON."""
+    raw = client.complete(
+        system=system,
+        messages=[LLMMessage(role="user", content=user_message)],
+        json_schema=json_schema,
+    )
+    return json.loads(raw)
+
+
 class AnthropicClient:
     """Real implementation, backed by the Anthropic API. Requires
     ANTHROPIC_API_KEY in the environment. Not yet exercised against a live
