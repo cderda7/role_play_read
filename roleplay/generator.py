@@ -8,10 +8,9 @@ role in this system that's allowed to know things the reader shouldn't yet.
 
 from __future__ import annotations
 
-import json
 from typing import List
 
-from .llm_client import CACHE_BOUNDARY_MARKER, LLMClient, LLMMessage
+from .llm_client import CACHE_BOUNDARY_MARKER, LLMClient, call_structured
 from .models import CandidateQuestion, Chapter
 from .spoiler_policy import SPOILER_POLICY
 
@@ -89,12 +88,7 @@ def generate_candidate_questions(
         f"Character the student is role-playing: {character}\n"
         f"Write {count} questions."
     )
-    raw = client.complete(
-        system=_system_prompt(full_play_text, grade_level),
-        messages=[LLMMessage(role="user", content=user_message)],
-        json_schema=GENERATE_SCHEMA,
-    )
-    data = json.loads(raw)
+    data = call_structured(client, _system_prompt(full_play_text, grade_level), user_message, GENERATE_SCHEMA)
     return [
         CandidateQuestion(
             chapter_id=chapter.chapter_id,
