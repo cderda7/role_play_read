@@ -33,6 +33,21 @@ class GateVerdict(str, Enum):
     UNCERTAIN = "UNCERTAIN"
 
 
+class TextKind(str, Enum):
+    """The two shapes of text gate.py's role B is ever asked to judge --
+    used to key gate.py's per-kind prompt config instead of a bare string +
+    if/else, so adding a new kind (e.g. the beat-level narration TODO.md
+    flags as next) means adding a dict entry, not editing branching logic.
+
+    Values are lowercase, unlike GateVerdict/CheckpointKind's ALL_CAPS
+    convention, to match the "question"/"narration" strings this codebase
+    already used before this enum existed -- since TextKind subclasses str,
+    existing callers passing a bare lowercase string stay compatible."""
+
+    QUESTION = "question"
+    NARRATION = "narration"
+
+
 @dataclass(frozen=True)
 class Chapter:
     """One reading checkpoint. For this play that's an Act/Scene grouping,

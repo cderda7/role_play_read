@@ -13,7 +13,7 @@ from .gate import evaluate_narration_for_spoilers, evaluate_question_for_spoiler
 from .generator import generate_candidate_questions
 from .keyword_gate import check_keyword_spoilers, check_keyword_spoilers_in_text
 from .llm_client import CACHE_BOUNDARY_MARKER, AnthropicClient, LLMClient, LLMMessage, split_cacheable
-from .models import CandidateQuestion, Chapter, GateResult, GateVerdict, KeywordFlag, ReviewItem
+from .models import CandidateQuestion, Chapter, GateResult, GateVerdict, KeywordFlag, ReviewItem, TextKind
 from .orchestrator import orchestrate_chapter, orchestrate_scene_script
 from .period_voice import ELIZABETHAN_VOICE_GUIDANCE, NO_SPECIAL_VOICE_GUIDANCE
 from .script_generator import generate_scene_script
@@ -33,6 +33,7 @@ __all__ = [
     "CandidateQuestion",
     "GateResult",
     "GateVerdict",
+    "TextKind",
     "KeywordFlag",
     "ReviewItem",
     "orchestrate_chapter",
