@@ -117,8 +117,10 @@ oversight.
   `tests/test_chunk_play.py`).
 - Character selection, checkpoint density, timing estimate: implemented and
   tested against known-good cases.
-- `AnthropicClient`: real implementation, **not yet run against a live key**
-  — treat it as unverified until it's actually exercised.
+- `AnthropicClient`: real implementation; `ANTHROPIC_API_KEY` is now
+  configured and wired in — still treat full pipeline output as unverified
+  until a complete pilot run has actually been read through end to end (see
+  "Recommended next step" below).
 - `SPOILER_KEYWORDS` / `CHAPTER_ORDER` in `keyword_gate.py`: empty
   placeholders. The backstop fails open (flags nothing) until these are
   populated with real chapter IDs and terms — don't mistake "no keyword
@@ -167,7 +169,7 @@ play:
 
 ```bash
 pip install -r requirements.txt --break-system-packages
-export ANTHROPIC_API_KEY=...
+# ANTHROPIC_API_KEY is now set in the environment (see llm_client.py)
 python run_pilot.py               # defaults to act1_scene1, grade 9
 python run_pilot.py act2_scene2 10
 ```
