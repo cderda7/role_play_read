@@ -1,0 +1,13 @@
+# Python bytecode / cache
+__pycache__/
+*.py[cod]
+
+# Test caches
+.pytest_cache/
+
+# Environment / secrets
+.env
+.venv/
+
+# OS cruft
+.DS_Store
